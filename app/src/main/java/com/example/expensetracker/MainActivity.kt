@@ -23,13 +23,34 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.ButtonDefaults
 import com.example.expensetracker.model.User
+
+// Import for Navigation
+import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             ExpenseTrackerTheme {
-                LoginPage()
+                // Set up the NavController and NavHost
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "login") {
+                    composable("login"){
+                        LoginPage(navController = navController)
+                    }
+                    composable("home"){
+                        HomeScreen(navController = navController)
+                    }
+                    composable("AddExpense"){
+                        AddExpenseScreen()
+                    }
+
+                }
             }
         }
     }
@@ -37,7 +58,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoginPage() {
+fun LoginPage(navController: NavController) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var usernameError by remember { mutableStateOf("") }
@@ -124,6 +145,11 @@ fun LoginPage() {
                             loginSuccess = true
                             loginError = "" // Clear login error
                             println("Login successful! Username: $username, Password: $password")
+                            // Navigate to the home screen
+                            navController.navigate("home") {
+                                // Optional: Pop up to the login screen to prevent going back
+                                popUpTo("login") { inclusive = true }
+                            }
                         } else {
                             loginSuccess = false
                             loginError = "Invalid credentials" // 🔸 Show login error
@@ -131,9 +157,10 @@ fun LoginPage() {
                         }
                     }
                 },
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(16.dp),
+                colors = ButtonDefaults.buttonColors(Color.Green)
             ) {
-                Text("Login", color = Color.Blue)
+                Text("Login")
             }
 
             // 🔸 Show login error
@@ -152,6 +179,6 @@ fun LoginPage() {
 @Composable
 fun LoginPreview() {
     ExpenseTrackerTheme {
-        LoginPage()
+        LoginPage(navController = rememberNavController())
     }
 }
