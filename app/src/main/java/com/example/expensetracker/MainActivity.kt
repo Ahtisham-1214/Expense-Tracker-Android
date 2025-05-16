@@ -24,13 +24,26 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.example.expensetracker.model.User
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.ui.text.input.VisualTransformation
 
 // Import for Navigation
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+
+// Import your Room database components
+import com.example.expensetracker.data.AppDatabase
+import com.example.expensetracker.data.UserRepository
+import kotlinx.coroutines.launch // Import for coroutines
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,10 +76,18 @@ fun LoginPage(navController: NavController) {
     var password by remember { mutableStateOf("") }
     var usernameError by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf("") }
-    var loginError by remember { mutableStateOf("") } // 🔸 New state
-    var loginSuccess by remember { mutableStateOf(false) }
-    val view = LocalView.current
+    var loginMessage by remember { mutableStateOf("") } // Combined for error/success messages
     val context = LocalContext.current // Get the context
+    val view = LocalView.current // Get the current view
+    val coroutineScope = rememberCoroutineScope() // Coroutine scope for launching suspend functions
+    var passwordVisible by remember { mutableStateOf(false) }
+    // Initialize UserRepository
+    // This should ideally be injected via Hilt/Koin or provided by a ViewModel for better architecture
+    // For this example, we'll initialize it directly here.
+    val userRepository = remember {
+        val database = AppDatabase.getDatabase(context.applicationContext)
+        UserRepository(database.userDao())
+    }
 
     SideEffect {
         val window = (view.context as ComponentActivity).window
@@ -98,11 +119,13 @@ fun LoginPage(navController: NavController) {
                 onValueChange = {
                     username = it
                     usernameError = ""
-                    loginError = "" // 🔸 Clear login error
+                    loginMessage = "" // Clear message on input change
                 },
                 label = { Text("Username") },
                 isError = usernameError.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(0.8f).padding(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .padding(8.dp),
                 supportingText = {
                     if (usernameError.isNotEmpty()) {
                         Text(usernameError, color = Color.Red)
@@ -114,15 +137,28 @@ fun LoginPage(navController: NavController) {
                 onValueChange = {
                     password = it
                     passwordError = ""
-                    loginError = "" // 🔸 Clear login error
+                    loginMessage = "" // Clear message on input change
                 },
                 label = { Text("Password") },
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 isError = passwordError.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(0.8f).padding(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .padding(8.dp),
                 supportingText = {
                     if (passwordError.isNotEmpty()) {
                         Text(passwordError, color = Color.Red)
+                    }
+                },
+                trailingIcon = {
+                    val image = if (passwordVisible)
+                        Icons.Filled.Visibility
+                    else Icons.Filled.VisibilityOff
+
+                    val description = if (passwordVisible) "Hide password" else "Show password"
+
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(imageVector = image, description)
                     }
                 }
             )
@@ -139,21 +175,20 @@ fun LoginPage(navController: NavController) {
                     }
 
                     if (usernameError.isEmpty() && passwordError.isEmpty()) {
-                        val user = User(username, password)
-                        user.setContext(context) // Set the context here
-                        if (user.validateUser()) {
-                            loginSuccess = true
-                            loginError = "" // Clear login error
-                            println("Login successful! Username: $username, Password: $password")
-                            // Navigate to the home screen
-                            navController.navigate("home") {
-                                // Optional: Pop up to the login screen to prevent going back
-                                popUpTo("login") { inclusive = true }
+                        // Launch a coroutine for the database operation
+                        coroutineScope.launch {
+                            val user = userRepository.loginUser(username, password)
+                            if (user != null) {
+                                loginMessage = "Login Successful! Welcome, ${user.name}"
+                                println("Login successful! Username: $username")
+                                // Navigate to the home screen
+                                navController.navigate("home") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            } else {
+                                loginMessage = "Invalid username or password"
+                                println("Login failed for username: $username")
                             }
-                        } else {
-                            loginSuccess = false
-                            loginError = "Invalid credentials" // 🔸 Show login error
-                            println("Login failed")
                         }
                     }
                 },
@@ -163,13 +198,36 @@ fun LoginPage(navController: NavController) {
                 Text("Login")
             }
 
-            // 🔸 Show login error
-            if (loginError.isNotEmpty()) {
-                Text(loginError, color = Color.Red)
+            // You might want a separate button for registration or a link
+            Button(
+                onClick = {
+                    val name = username // Use the state variable
+                    val pwd = password  // Use the state variable
+                    if (name.isBlank() || pwd.isBlank()) {
+                        loginMessage = "Please enter username and password to register."
+                        return@Button
+                    }
+
+                    coroutineScope.launch {
+                        val newUser = User(name = name, password = pwd)
+                        val isRegistered = userRepository.registerUser(newUser)
+                        loginMessage = if (isRegistered) {
+                            "Registration successful! You can now log in."
+                        } else {
+                            "Registration failed: Username already exists."
+                        }
+                    }
+                },
+                modifier = Modifier.padding(bottom = 16.dp),
+                colors = ButtonDefaults.buttonColors(Color.Blue) // Different color for register
+            ) {
+                Text("Register")
             }
 
-            if (loginSuccess) {
-                Text("Login Successful", color = Color.Green)
+            // Display login/registration messages
+            if (loginMessage.isNotEmpty()) {
+                val messageColor = if (loginMessage.contains("Successful")) Color.Green else Color.Red
+                Text(loginMessage, color = messageColor)
             }
         }
     }
